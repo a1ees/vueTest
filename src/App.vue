@@ -1,7 +1,7 @@
 <template>
   <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
     <div
-      v-if="!allCurrencies.length"
+      v-if="false"
       class="fixed w-100 h-100 opacity-80 bg-purple-800 inset-0 z-50 flex items-center justify-center"
     >
       <svg
@@ -26,61 +26,9 @@
       </svg>
     </div>
     <div class="container">
-      <section>
-        <div class="flex">
-          <div class="max-w-xs">
-            <label for="wallet" class="block text-sm font-medium text-gray-700"
-              >Тикер</label
-            >
-            <div class="mt-1 relative rounded-md shadow-md">
-              <input
-                v-model="ticker"
-                @input="inputTicker"
-                type="text"
-                name="wallet"
-                id="wallet"
-                class="block w-full pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
-                placeholder="Например DOGE"
-              />
-            </div>
-            <div v-if="foundTickers.length">
-              <div class="flex bg-white p-1 rounded-md shadow-md flex-wrap">
-                <span
-                  v-for="tiker in foundTickers.slice(0, 4)"
-                  :key="tiker"
-                  @click="autoComplite(tiker)"
-                  class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-                >
-                  {{ tiker.toString() }}
-                </span>
-              </div>
-            </div>
-            <div v-if="errorTicker" class="text-sm text-red-600">
-              Такой тикер уже добавлен
-            </div>
-          </div>
-        </div>
-        <button
-          @click="add"
-          type="button"
-          class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-        >
-          <!-- Heroicon name: solid/mail -->
-          <svg
-            class="-ml-0.5 mr-2 h-6 w-6"
-            xmlns="http://www.w3.org/2000/svg"
-            width="30"
-            height="30"
-            viewBox="0 0 24 24"
-            fill="#ffffff"
-          >
-            <path
-              d="M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
-            ></path>
-          </svg>
-          Добавить
-        </button>
-      </section>
+
+      <add-ticker-form @add-ticker="add" :tickers="tickers" />
+      
       <section v-if="tickers.length">
         <div>
           <span>Фильтрация: </span>
@@ -115,7 +63,12 @@
             }"
             class="bg-white overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer"
           >
-            <div class="px-4 py-5 sm:p-6 text-center">
+            <div
+              :class="{
+                'bg-red-300': t.price === '-',
+              }"
+              class="px-4 py-5 sm:p-6 text-center"
+            >
               <dt class="text-sm font-medium text-gray-500 truncate">
                 {{ t.name }}
               </dt>
@@ -150,7 +103,10 @@
         <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
           {{ currentTicker ? currentTicker.name : null }} - USD
         </h3>
-        <div class="flex items-end border-gray-600 border-b border-l h-64">
+        <div
+          class="flex items-end border-gray-600 border-b border-l h-64"
+          ref="graph"
+        >
           <div
             v-for="(bar, idx) in normalizeGraph"
             :key="idx"
@@ -190,23 +146,31 @@
 </template>
 
 <script>
-import { subscribeToTicker, unsubscribeFromTicker } from './api'
+import { subscribeToTicker, unsubscribeFromTicker } from "./api";
+import AddTickerForm from "./components/AddTickerForm.vue";
 export default {
   name: "App",
+  components: {
+    AddTickerForm,
+  },
   data() {
     return {
       page: 1,
-      ticker: "",
       filter: "",
       currentTicker: null,
-      errorTicker: false,
+      errorTicker: false, //
       graph: [],
       tickers: [],
-      allCurrencies: [],
-      foundTickers: [],
+      maxGraphElem: 1,
     };
   },
   computed: {
+    calcExcessElem() {
+      if (this.graph) {
+        return this.graph.length - this.maxGraphElem;
+      }
+      return null;
+    },
     startIndex() {
       return (this.page - 1) * 6;
     },
@@ -259,77 +223,67 @@ export default {
 
     if (tikersData) {
       this.tickers = JSON.parse(tikersData);
-      this.tickers.forEach(ticker => {
-        subscribeToTicker(ticker.name, (newPrice) => this.updateTicker(ticker.name, newPrice));
-      })
+      this.tickers.forEach((ticker) => {
+        subscribeToTicker(ticker.name, (newPrice) =>
+          this.updateTicker(ticker.name, newPrice)
+        );
+      });
     }
   },
   async mounted() {
-    const f = await fetch(
-      "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
-    );
-    const responseData = await f.json();
-    this.allCurrencies = Object.keys(responseData.Data).map((key) => {
-      return responseData.Data[key].Symbol;
+    window.addEventListener("resize", () => {
+      this.calcMaxGraphElem();
     });
   },
   methods: {
+    calcMaxGraphElem() {
+      const graph = this.$refs.graph;
+      if (!graph) {
+        return;
+      }
+      this.maxGraphElem = graph.clientWidth / 38;
+    },
     updateTicker(tickerName, price) {
       this.tickers
-        .filter(t => t.name === tickerName)
-        .forEach(t => {
-          if(t === this.currentTicker) {
-            this.graph.push(price)
+        .filter((t) => t.name === tickerName)
+        .forEach((t) => {
+          if (t === this.currentTicker) {
+            this.graph.push(price);
+            if (this.graph.length > this.maxGraphElem) {
+              console.log(t);
+              this.graph = this.graph.slice(
+                this.calcExcessElem,
+                this.graph.length
+              );
+            }
           }
-          t.price = price 
-        })
+          t.price = price;
+        });
     },
 
     formatPrice(price) {
-      if(price === "-") {
-        return price
+      if (typeof price !== "number") {
+        return price;
       }
       return price > 1 ? price.toFixed(2) : price.toPrecision(2);
     },
-    add() {
+    add(ticker) {
       const newTicker = {
-        name: this.ticker.toUpperCase(),
-        price: "-",
+        name: ticker.toUpperCase(),
+        price: null,
       };
-      if (
-        this.tickers.some(
-          (i) => i.name.toUpperCase() === newTicker.name.toUpperCase()
-        )
-      ) {
-        this.errorTicker = true;
-      } else {
-        this.tickers.push(newTicker);
-        this.ticker = "";
-        subscribeToTicker(newTicker.name, newPrice => this.updateTicker(newTicker.name, newPrice));
-      }
-    },
-    autoComplite(tiker) {
-      this.ticker = tiker;
-      this.add();
-      this.foundTickers = [];
+      this.tickers.push(newTicker);
+      subscribeToTicker(newTicker.name, (newPrice) =>
+        this.updateTicker(newTicker.name, newPrice)
+      );
     },
     handleDelete(tickerToRemove) {
       this.tickers = this.tickers.filter((t) => t !== tickerToRemove);
       this.currentTicker = null;
-      unsubscribeFromTicker(tickerToRemove.name)
+      unsubscribeFromTicker(tickerToRemove.name);
     },
     select(ticker) {
       this.currentTicker = ticker;
-    },
-    inputTicker() {
-      this.errorTicker = false;
-      if (this.ticker) {
-        this.foundTickers = this.allCurrencies.filter((i) =>
-          i.startsWith(this.ticker.toUpperCase())
-        );
-      } else {
-        this.foundTickers = [];
-      }
     },
   },
   watch: {
@@ -351,6 +305,7 @@ export default {
     },
     currentTicker() {
       this.graph = [];
+      this.$nextTick().then(this.calcMaxGraphElem);
     },
   },
 };
